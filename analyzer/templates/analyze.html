@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analizador de Archivos ARFF</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .table-responsive { 
+            max-height: 600px; 
+            overflow-y: auto;
+        }
+        .table th {
+            position: sticky;
+            top: 0;
+            background: white;
+            z-index: 1;
+        }
+    </style>
+</head>
+<body class="container mt-4">
+    <div class="row">
+        <div class="col-md-10 offset-md-1">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h2 class="mb-0 text-center">Analizador de Archivos ARFF</h2>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        Este analizador te permite cargar archivos ARFF y visualizar sus datos usando pandas.
+                        Soporta archivos ARFF con el formato estándar de Weka.
+                    </div>
+
+                    <form method="post" enctype="multipart/form-data" class="mb-4">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            {{ form.arff_file.label_tag }}
+                            {{ form.arff_file }}
+                            <div class="form-text">
+                                Selecciona un archivo ARFF válido para analizarlo
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="fas fa-search"></i> Analizar Dataset
+                        </button>
+                    </form>
+
+                    {% if error %}
+                        <div class="alert alert-danger">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            {{ error }}
+                        </div>
+                    {% endif %}
+
+                    {% if df_html %}
+                        <div class="card mt-4">
+                            <div class="card-header bg-success text-white">
+                                <h3 class="mb-0">Resultados del Análisis: {{ file_name }}</h3>
+                            </div>
+                            <div class="card-body">
+                                <div class="alert alert-success">
+                                    <strong>Dimensiones del Dataset:</strong><br>
+                                    - Número de registros: <strong>{{ shape.0 }} filas</strong><br>
+                                    - Número de atributos: <strong>{{ shape.1 }} columnas</strong><br>
+                                    <small>(Se muestran máximo 100 filas para mejor rendimiento)</small>
+                                </div>
+                                
+                                <div class="table-responsive">
+                                    {{ df_html|safe }}
+                                </div>
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <footer class="text-center mt-4 text-muted">
+                <small>Desarrollado con Django y Pandas - Desplegado en Render</small>
+            </footer>
+        </div>
+    </div>
+
+    <!-- Font Awesome para iconos -->
+    <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+</body>
+</html>
