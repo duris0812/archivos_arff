@@ -2,6 +2,8 @@ import pandas as pd
 from django.shortcuts import render
 from .forms import ArffUploadForm
 import io
+import requests
+from urllib.parse import urlparse
 
 def analyze_arff_view(request):
     context = {'form': ArffUploadForm()}
@@ -9,67 +11,86 @@ def analyze_arff_view(request):
     if request.method == 'POST':
         form = ArffUploadForm(request.POST, request.FILES)
         if form.is_valid():
-            arff_file = request.FILES['arff_file']
-            
-            # Verificar la extensión del archivo
-            if not arff_file.name.lower().endswith('.arff'):
-                context['error'] = "El archivo debe tener extensión .arff"
-                return render(request, 'analyzer/analyze.html', context)
-            
+            source = form.cleaned_data.get('source')
+            file_content = None
+            file_name = None
+
             try:
-                # Leer el contenido del archivo en memoria
-                file_content = arff_file.read().decode('utf-8')
-                
-                # Extraer los nombres de las columnas de los metadatos @attribute
-                attribute_names = []
-                for line in file_content.split('\n'):
-                    if line.lower().startswith('@attribute'):
-                        # Extraer el nombre del atributo
-                        attr_name = line.split()[1]
-                        attribute_names.append(attr_name)
-                
-                # Resetear el puntero del archivo para leerlo de nuevo
-                arff_file.seek(0)
-                
-                # Leer el archivo usando pandas
-                df = pd.read_csv(
-                    io.StringIO(file_content),
-                    comment='@',
-                    header=None,
-                    na_values=['?']  # Manejar valores faltantes marcados como ?
-                )
-                
-                # Asignar los nombres de columnas extraídos
-                if len(attribute_names) == len(df.columns):
-                    df.columns = attribute_names
-                else:
-                    # Si algo salió mal, usar nombres genéricos
-                    df.columns = [f'Atributo_{i+1}' for i in range(len(df.columns))]
+                if source == 'upload':
+                    arff_file = request.FILES.get('arff_file')
+                    if not arff_file:
+                        context['error'] = 'No se seleccionó ningún archivo.'
+                        return render(request, 'analyzer/analyze.html', context)
+                    if not arff_file.name.lower().endswith('.arff'):
+                        context['error'] = 'El archivo debe tener extensión .arff'
+                        return render(request, 'analyzer/analyze.html', context)
 
-                # Convertir el DataFrame a HTML para mostrarlo
-                df_html = df.to_html(
-                    classes='table table-striped table-hover table-bordered', 
-                    max_rows=100,
-                    justify='left',
-                    border=0,
-                    na_rep='N/A',  # Representación de valores faltantes
-                    float_format=lambda x: '{:.3f}'.format(x) if pd.notnull(x) else 'N/A'
-                )
-                
-                # Agregar información al contexto
-                context.update({
-                    'df_html': df_html,
-                    'file_name': arff_file.name,
-                    'shape': df.shape,
-                    'num_na': df.isna().sum().sum(),  # Total de valores faltantes
-                    'memory_usage': df.memory_usage().sum() / 1024 / 1024  # Uso de memoria en MB
-                })
+                    file_name = arff_file.name
+                    raw = arff_file.read()
+                    try:
+                        file_content = raw.decode('utf-8')
+                    except Exception:
+                        file_content = raw.decode('latin-1')
 
-            except UnicodeDecodeError:
-                context['error'] = "Error de codificación: El archivo debe estar en formato UTF-8"
-            except pd.errors.EmptyDataError:
-                context['error'] = "El archivo está vacío o no contiene datos válidos"
+                elif source == 'github':
+                    github_url = form.cleaned_data.get('github_url')
+                    if not github_url:
+                        context['error'] = 'Introduce la URL del archivo en GitHub.'
+                        return render(request, 'analyzer/analyze.html', context)
+
+                    parsed = urlparse(github_url)
+                    if 'github.com' in parsed.netloc and '/blob/' in parsed.path:
+                        raw_url = github_url.replace('https://github.com/', 'https://raw.githubusercontent.com/')
+                        raw_url = raw_url.replace('/blob/', '/')
+                    else:
+                        raw_url = github_url
+
+                    resp = requests.get(raw_url, timeout=15)
+                    if resp.status_code != 200:
+                        context['error'] = f'No se pudo descargar el archivo desde GitHub (status {resp.status_code}).'
+                        return render(request, 'analyzer/analyze.html', context)
+
+                    file_name = raw_url.split('/')[-1]
+                    file_content = resp.text
+
+                if file_content:
+                    attribute_names = []
+                    for line in file_content.split('\n'):
+                        if line.strip().lower().startswith('@attribute'):
+                            parts = line.split()
+                            if len(parts) >= 2:
+                                attribute_names.append(parts[1].strip("'\""))
+
+                    df = pd.read_csv(
+                        io.StringIO(file_content),
+                        comment='@',
+                        header=None,
+                        na_values=['?']
+                    )
+
+                    if len(attribute_names) == len(df.columns):
+                        df.columns = attribute_names
+                    else:
+                        df.columns = [f'Columna_{i+1}' for i in range(len(df.columns))]
+
+                    df_html = df.to_html(
+                        classes='table table-hover table-striped',
+                        max_rows=100,
+                        justify='left',
+                        border=0,
+                        na_rep='-'
+                    )
+
+                    context.update({
+                        'df_html': df_html,
+                        'file_name': file_name,
+                        'num_rows': df.shape[0],
+                        'num_cols': df.shape[1]
+                    })
+
+            except requests.RequestException as re:
+                context['error'] = f'Error al descargar desde GitHub: {str(re)}'
             except Exception as e:
-                context['error'] = f"Error al procesar el archivo: {str(e)}"
+                context['error'] = f'Error al procesar el archivo: {str(e)}'
     
     return render(request, 'analyzer/analyze.html', context)

@@ -2,3 +2,4 @@ django
 gunicorn
 pandas
 whitenoise
+requests
